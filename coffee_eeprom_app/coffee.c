@@ -8,6 +8,8 @@
 uint8_t data_buffer[4];
 uint8_t address_54_buffer[4];
 uint8_t address_44_buffer[4];
+uint8_t address_4c_buffer[4];
+uint8_t address_5c_buffer[4];
 
 bool write_buffer(uint8_t *buffer, size_t buffer_size, uint8_t start_address){
 	furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
@@ -33,11 +35,19 @@ void write_dump(uint8_t* buffer, size_t size){
 }
 
 void write_credit(float value){
+	memcpy(address_4c_buffer, data_buffer, 4 * sizeof(uint8_t));
+	address_4c_buffer[2] -= 0x80;
+
+	memcpy(address_5c_buffer, address_4c_buffer, 4 * sizeof(uint8_t));
+	address_4c_buffer[1] -= 0x40;
+
 	calc_credit(value, address_44_buffer);
 	memcpy(address_54_buffer, address_44_buffer, 4 * sizeof(uint8_t));
     address_54_buffer[1] -= 0x40;
 	write_buffer(address_44_buffer, sizeof(address_44_buffer), 0x44);
 	write_buffer(address_54_buffer, sizeof(address_54_buffer), 0x54);
+	write_buffer(address_4c_buffer, sizeof(address_4c_buffer), 0x4C);
+	write_buffer(address_5c_buffer, sizeof(address_5c_buffer), 0x5C);
 }
 
 void dump(uint8_t* out){
