@@ -37,9 +37,10 @@ void write_dump(uint8_t* buffer, size_t size){
 void write_credit(float value){
 	memcpy(address_4c_buffer, data_buffer, 4 * sizeof(uint8_t));
 	address_4c_buffer[2] -= 0x80;
+	address_4c_buffer[1] -= 0x40;
 
 	memcpy(address_5c_buffer, address_4c_buffer, 4 * sizeof(uint8_t));
-	address_4c_buffer[1] -= 0x40;
+	address_5c_buffer[1] -= 0x40;
 
 	calc_credit(value, address_44_buffer);
 	memcpy(address_54_buffer, address_44_buffer, 4 * sizeof(uint8_t));
