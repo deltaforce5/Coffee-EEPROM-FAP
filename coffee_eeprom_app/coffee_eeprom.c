@@ -125,11 +125,25 @@ void load_file_dump(){
 }
 
 FuriString* save_file_dump(float credit){
-    char file_name_buf[64];
-    set_random_name(file_name_buf, 64);
-    char* file_path = APP_DATA_PATH("Dump");
+    //char file_name_buf[64];
+    //set_random_name(file_name_buf, 64);
+
+    FuriHalRtcDateTime dateTime;
+    furi_hal_rtc_get_datetime(&dateTime);
+
+    char* file_path = APP_DATA_PATH();
         // Open storage
-    FuriString* file_name = furi_string_alloc_printf("%s_%s_%d.bin", file_path, file_name_buf, (int) credit * 100);
+    FuriString* file_name = furi_string_alloc_printf("%s%04d%02d%02d-%02d%02d%02d_%s_%d.bin", 
+                                                        file_path,
+                                                        dateTime.year,
+                                                        dateTime.month,
+                                                        dateTime.day,
+                                                        dateTime.hour,
+                                                        dateTime.minute, 
+                                                        dateTime.second,
+                                                        //file_name_buf,
+                                                        "Dump", 
+                                                        (int) (credit * 100));
     Storage* storage = furi_record_open(RECORD_STORAGE);
 
     // Allocate file
