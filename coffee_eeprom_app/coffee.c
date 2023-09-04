@@ -12,6 +12,7 @@ uint8_t address_4c_buffer[4];
 uint8_t address_5c_buffer[4];
 
 bool write_buffer(uint8_t *buffer, size_t buffer_size, uint8_t start_address){
+	FURI_LOG_E("COFFEE", "Writing %d bytes at start address %.2X", buffer_size, start_address);
 	furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
 	bool result = false;
 	if(furi_hal_i2c_is_device_ready(&furi_hal_i2c_handle_external, EEPROM_I2C_ADDR, (uint32_t) 1000)){
@@ -21,6 +22,7 @@ bool write_buffer(uint8_t *buffer, size_t buffer_size, uint8_t start_address){
 			while(!result){
 				result = furi_hal_i2c_write_reg_8(&furi_hal_i2c_handle_external, EEPROM_I2C_ADDR, start_address + i, buffer[i], (uint32_t) 2000);
             	FURI_LOG_E("COFFEE", "Write %.2X, byte %d/%d at address %.2X, result %d", buffer[i], i + 1, buffer_size, start_address + i, result);
+				furi_delay_ms(30);
 			}
 		}
 	}
@@ -34,7 +36,7 @@ void write_dump(uint8_t* buffer, size_t size){
 	write_buffer(buffer, size, 0x00);
 }
 
-void write_credit(float value){
+void write_credit(float value, float prev_value){
 	memcpy(address_4c_buffer, data_buffer, 4 * sizeof(uint8_t));
 	address_4c_buffer[2] -= 0x80;
 
@@ -42,16 +44,16 @@ void write_credit(float value){
 	memcpy(address_54_buffer, address_44_buffer, 4 * sizeof(uint8_t));
     address_54_buffer[1] -= 0x40;
 
-	if (address_4c_buffer[2] > address_44_buffer[2])
+	if (address_4c_buffer[2] > data_buffer[2] || value > prev_value)
 		address_4c_buffer[1] -= 0x40;
 	
 	memcpy(address_5c_buffer, address_4c_buffer, 4 * sizeof(uint8_t));
 	address_5c_buffer[1] -= 0x40;
 
 	write_buffer(address_44_buffer, sizeof(address_44_buffer), 0x44);
-	write_buffer(address_4c_buffer, sizeof(address_4c_buffer), 0x4C);
+	write_buffer(address_4c_buffer, sizeof(address_4c_buffer), 0x4c);
 	write_buffer(address_54_buffer, sizeof(address_54_buffer), 0x54);
-	write_buffer(address_5c_buffer, sizeof(address_5c_buffer), 0x5C);
+	write_buffer(address_5c_buffer, sizeof(address_5c_buffer), 0x5c);
 }
 
 void dump(uint8_t* out){
@@ -105,6 +107,7 @@ float read_credit(){
 		}
 		else{
 			FURI_LOG_D("COFFEE", "READ CREDIT: EEPROM not ready %x (8-bit)", EEPROM_I2C_ADDR);
+			furi_delay_ms(1000);
 		}
 	}
     furi_hal_i2c_release(&furi_hal_i2c_handle_external);

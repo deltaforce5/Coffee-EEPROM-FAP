@@ -8,7 +8,6 @@
 #include <math.h>
 #include <storage/storage.h>
 #include <dialogs/dialogs.h>
-#include <lib/toolbox/random_name.h>
 
 #define TAG "COFFEE EEPROM"
 #define MAX_CREDIT 655.35
@@ -21,24 +20,36 @@ typedef struct {
     bool editor_mode;
     float digit_editor;
     float credit;
+    float prev_credit;
     FuriString* msg;
     FuriString* status;
+    FuriString* center_btn;
+    FuriMutex* mutex;
+    NotificationApp* notifications;
 } CoffeeContext;
 
 
 static void coffee_render_callback(Canvas* const canvas, void* ctx) {
     CoffeeContext* context = ctx;
+
+    furi_check(furi_mutex_acquire(context->mutex, FuriWaitForever)==FuriStatusOk);
+
     canvas_clear(canvas);
     canvas_set_color(canvas, ColorBlack);
     canvas_set_font(canvas, FontSecondary);
     elements_button_left(canvas, "Load");
     elements_button_right(canvas, "Save");
-    elements_button_center(canvas, "Edit (Hold)");
+    furi_string_printf(context->center_btn, context->editor_mode?"Save":"Edit (Hold)");
+    elements_button_center(canvas, furi_string_get_cstr(context->center_btn));
     canvas_set_font(canvas, FontPrimary);
+    canvas_draw_str_aligned(canvas, 64, 0, AlignCenter, AlignTop, "Coffee Eeprom App");
+    canvas_set_font(canvas, FontKeyboard);
     furi_string_printf(context->msg, "Credit: %.2f EUR", (double) context->credit);
-    canvas_draw_str_aligned(canvas, 64, 8, AlignCenter, AlignCenter, furi_string_get_cstr(context->msg));
+    canvas_draw_str_aligned(canvas, 64, 16, AlignCenter, AlignCenter, furi_string_get_cstr(context->msg));
     canvas_set_font(canvas, FontKeyboard);
     canvas_draw_str_aligned(canvas, 64, 26, AlignCenter, AlignCenter, furi_string_get_cstr(context->status));
+
+    furi_mutex_release(context->mutex); 
 }
 
 /* This function is called from the GUI thread. All it does is put the event
@@ -54,12 +65,19 @@ static CoffeeContext* coffee_context_alloc() {
     context->view_port = view_port_alloc();
     view_port_draw_callback_set(context->view_port, coffee_render_callback, context);
     view_port_input_callback_set(context->view_port, coffee_input_callback, context);
-
+    
     context->event_queue = furi_message_queue_alloc(8, sizeof(InputEvent));
     context->gui = furi_record_open(RECORD_GUI);
     gui_add_view_port(context->gui, context->view_port, GuiLayerFullscreen);
+    
+    context->center_btn = furi_string_alloc();
     context->msg = furi_string_alloc();
     context->status = furi_string_alloc();
+    
+    context->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
+
+    context->notifications = furi_record_open(RECORD_NOTIFICATION);
+
     return context;
 }
 
@@ -125,9 +143,6 @@ void load_file_dump(){
 }
 
 FuriString* save_file_dump(float credit){
-    //char file_name_buf[64];
-    //set_random_name(file_name_buf, 64);
-
     FuriHalRtcDateTime dateTime;
     furi_hal_rtc_get_datetime(&dateTime);
 
@@ -177,9 +192,15 @@ FuriString* save_file_dump(float credit){
 
 /* Starts the reader thread and handles the input */
 static void coffee_run(CoffeeContext* context) {
-    /* Start the reader thread. It will talk to the thermometer in the background. */
+    /* Start the reader thread. It will read the chip in the background. */
+    notification_message(context->notifications, &sequence_blink_green_100);
+    furi_string_printf(context->status, "Waiting for chip...");
     context->credit = read_credit();
     context->digit_editor = 0.01;
+    furi_string_reset(context->status);
+
+    notification_message(context->notifications, &sequence_set_only_blue_255);
+
     /* An endless loop which handles the input*/
     for(bool is_running = true; is_running;) {
         InputEvent event;
@@ -188,6 +209,8 @@ static void coffee_run(CoffeeContext* context) {
             furi_message_queue_get(context->event_queue, &event, FuriWaitForever);
 
         if(status == FuriStatusOk) {
+           furi_check(furi_mutex_acquire(context->mutex, FuriWaitForever) == FuriStatusOk);
+
            if(event.type == InputTypePress) {
                     switch(event.key) {
                     case InputKeyUp:
@@ -219,16 +242,25 @@ static void coffee_run(CoffeeContext* context) {
                             FURI_LOG_E(TAG, "%.2f   %.2f", (double) context->credit, (double) context->digit_editor);
                         }else{
                             //virgin();
+                            notification_message(context->notifications, &sequence_set_only_red_255);
+                            furi_string_printf(context->status, "Writing dump...");
+                            furi_mutex_release(context->mutex);
                             load_file_dump();
+                            furi_check(furi_mutex_acquire(context->mutex, FuriWaitForever) == FuriStatusOk);
+                            notification_message(context->notifications, &sequence_blink_green_100);
                             context->credit = read_credit();
                             furi_string_printf(context->status, "Dump write done!");
                         }
                         break;
                     case InputKeyOk:
                         if(context->editor_mode){
-                            write_credit(context->credit);
+                            notification_message(context->notifications, &sequence_blink_red_100);
+                            furi_string_printf(context->status, "Writing...");
+                            write_credit(context->credit, context->prev_credit);
+                            notification_message(context->notifications, &sequence_blink_green_100);
                             context->credit = read_credit();
                             furi_string_printf(context->status, "Write done!");
+                            furi_string_printf(context->center_btn, "Edit (Hold)");
                             context->editor_mode = false;
                         }
                         break;
@@ -241,23 +273,36 @@ static void coffee_run(CoffeeContext* context) {
                         }
                         break;
                     }
+                    if (context->editor_mode)
+                        notification_message(context->notifications, &sequence_set_only_red_255);
+                    else
+                        notification_message(context->notifications, &sequence_set_only_blue_255);
+
                 }else if(event.type == InputTypeLong && event.key == InputKeyOk){
                         furi_string_printf(context->status, "Editor Mode");
                         context->editor_mode = true;
+                        context->prev_credit = context->credit;
+                        notification_message(context->notifications, &sequence_set_only_red_255);
                 }
+
+            furi_mutex_release(context->mutex);
         }
     }
 
+    notification_message(context->notifications, &sequence_reset_rgb);
 }
 
 /* Release the unused resources and deallocate memory */
 static void coffee_context_free(CoffeeContext* context) {
+    furi_mutex_free(context->mutex);
     furi_string_free(context->msg);
     furi_string_free(context->status);
+    furi_string_free(context->center_btn);
     view_port_enabled_set(context->view_port, false);
     gui_remove_view_port(context->gui, context->view_port);
     furi_message_queue_free(context->event_queue);
     view_port_free(context->view_port);
+    furi_record_close(RECORD_NOTIFICATION);
     furi_record_close(RECORD_GUI);
 }
 
