@@ -8,7 +8,6 @@
 #include <math.h>
 #include <storage/storage.h>
 #include <dialogs/dialogs.h>
-#include <lib/toolbox/name_generator.h>
 
 #define TAG "COFFEE EEPROM"
 #define MAX_CREDIT 655.35
